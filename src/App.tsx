@@ -251,7 +251,7 @@ function App() {
   return (
     <div className="app-container">
       <div className="app-header">
-        <h1 className="app-title">Simple CSV Chart</h1>
+        <h1 className="app-title">"Simple" Chart</h1>
         <p className="app-subtitle">
           Upload CSV files to visualize correlations
         </p>

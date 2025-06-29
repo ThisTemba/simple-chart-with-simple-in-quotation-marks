@@ -1,6 +1,6 @@
 {
-  "name": "Simple CSV Chart",
-  "short_name": "CSV Chart",
+  "name": "\"Simple\" Chart",
+  "short_name": "\"Simple\" Chart",
   "description": "Upload CSV files to visualize correlations between time series data",
   "start_url": "/",
   "display": "standalone",
