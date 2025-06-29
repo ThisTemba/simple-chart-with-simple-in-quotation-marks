@@ -1,0 +1,16 @@
+{
+  "name": "Simple CSV Chart",
+  "short_name": "CSV Chart",
+  "description": "Upload CSV files to visualize correlations between time series data",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f9fc",
+  "theme_color": "#2d6ae3",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
