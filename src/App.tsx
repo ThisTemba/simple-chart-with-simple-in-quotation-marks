@@ -11,7 +11,12 @@ import {
   Legend,
 } from "chart.js";
 import type { ChartData, ChartDataset, TooltipItem } from "chart.js";
+import dayjs from "dayjs";
+import customParseFormat from "dayjs/plugin/customParseFormat";
 import "./App.css";
+
+// Enable dayjs plugins for better parsing
+dayjs.extend(customParseFormat);
 
 ChartJS.register(
   CategoryScale,
@@ -75,13 +80,38 @@ function App() {
       }
     }
 
+    const parseDate = (dateString: string): Date | null => {
+      const trimmedDate = dateString.trim();
+
+      try {
+        // Let dayjs automatically parse the date
+        const parsed = dayjs(trimmedDate);
+
+        // Check if the parsed date is valid
+        if (parsed.isValid()) {
+          return parsed.toDate();
+        }
+      } catch (error) {
+        console.error(`Error parsing date "${trimmedDate}":`, error);
+      }
+
+      return null;
+    };
+
     for (let i = 1; i < lines.length; i++) {
       const columns = lines[i].split(",");
       if (columns.length >= 2) {
-        const date = columns[0].trim();
-        const value = parseFloat(columns[1].trim());
-        if (!isNaN(value) && date) {
-          data.push({ date, value });
+        const dateString = columns[0].trim();
+        const valueString = columns[1].trim().replace(/\r$/, ""); // Remove trailing carriage return
+        const value = parseFloat(valueString);
+
+        if (!isNaN(value) && dateString) {
+          const parsedDate = parseDate(dateString);
+          if (parsedDate) {
+            // Normalize date to ISO format for consistency
+            const normalizedDate = dayjs(parsedDate).format("YYYY-MM-DD");
+            data.push({ date: normalizedDate, value });
+          }
         }
       }
     }
@@ -146,12 +176,14 @@ function App() {
               }
 
               // Use continuous dates for the chart
-              const chartLabels = continuousDates;
+              const chartLabels = continuousDates.map((date) =>
+                dayjs(date).format("MMM DD")
+              );
 
               const chartDatasets: NormalizedDataset[] = updatedDatasets.map(
                 (dataset) => {
-                  // Build arrays aligned with sortedDates
-                  const originalValues = chartLabels.map((date) => {
+                  // Build arrays aligned with continuousDates (not chartLabels!)
+                  const originalValues = continuousDates.map((date) => {
                     const point = dataset.data.find((p) => p.date === date);
                     return point ? point.value : null;
                   });
@@ -317,7 +349,7 @@ function App() {
                   <tbody>
                     {dataset.data.map((point, pointIndex) => (
                       <tr key={pointIndex}>
-                        <td>{point.date}</td>
+                        <td>{dayjs(point.date).format("MMM DD, YYYY")}</td>
                         <td>{point.value}</td>
                       </tr>
                     ))}
