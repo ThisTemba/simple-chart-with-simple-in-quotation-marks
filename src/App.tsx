@@ -53,6 +53,7 @@ function App() {
     labels: [],
     datasets: [],
   });
+  const [errorMessage, setErrorMessage] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const colors = [
@@ -68,13 +69,41 @@ function App() {
 
   const parseCSV = (
     csvText: string
-  ): { data: DataPoint[]; valueColumnName: string } => {
+  ): { data: DataPoint[]; valueColumnName: string; error?: string } => {
     const lines = csvText.trim().split("\n");
     const data: DataPoint[] = [];
     let valueColumnName = "Value"; // default fallback
 
+    if (lines.length < 2) {
+      return {
+        data: [],
+        valueColumnName,
+        error: "CSV file must have at least 2 lines (header + data)",
+      };
+    }
+
     if (lines.length > 0) {
       const headers = lines[0].split(",").map((h) => h.trim());
+
+      // Check if this looks like a simple Date,Value format
+      if (headers.length < 2) {
+        return {
+          data: [],
+          valueColumnName,
+          error: "CSV must have at least 2 columns (Date and Value)",
+        };
+      }
+
+      // Check if first column looks like a date column
+      const firstCol = headers[0].toLowerCase();
+      if (!firstCol.includes("date") && !firstCol.includes("time")) {
+        return {
+          data: [],
+          valueColumnName,
+          error: "First column should be a date column (e.g., 'Date', 'Time')",
+        };
+      }
+
       if (headers.length >= 2) {
         valueColumnName = headers[1];
       }
@@ -98,7 +127,11 @@ function App() {
       return null;
     };
 
+    let validRows = 0;
+    let totalRows = 0;
+
     for (let i = 1; i < lines.length; i++) {
+      totalRows++;
       const columns = lines[i].split(",");
       if (columns.length >= 2) {
         const dateString = columns[0].trim();
@@ -111,9 +144,27 @@ function App() {
             // Normalize date to ISO format for consistency
             const normalizedDate = dayjs(parsedDate).format("YYYY-MM-DD");
             data.push({ date: normalizedDate, value });
+            validRows++;
           }
         }
       }
+    }
+
+    // Check if we got any valid data
+    if (validRows === 0) {
+      return {
+        data: [],
+        valueColumnName,
+        error: `No valid data found. Expected format: Date,Value. Found ${totalRows} rows but none could be parsed.`,
+      };
+    }
+
+    if (validRows < totalRows * 0.5) {
+      return {
+        data: [],
+        valueColumnName,
+        error: `Only ${validRows} out of ${totalRows} rows could be parsed. Please check your CSV format.`,
+      };
     }
 
     return {
@@ -133,7 +184,12 @@ function App() {
       const reader = new FileReader();
       reader.onload = (e) => {
         const csvText = e.target?.result as string;
-        const { data, valueColumnName } = parseCSV(csvText);
+        const { data, valueColumnName, error } = parseCSV(csvText);
+
+        if (error) {
+          setErrorMessage(`Error in ${file.name}: ${error}`);
+          return;
+        }
 
         if (data.length > 0) {
           const fileName = file.name.replace(".csv", "");
@@ -192,12 +248,13 @@ function App() {
                   const validVals = originalValues.filter(
                     (v): v is number => v !== null
                   );
+                  const minVal = Math.min(...validVals);
                   const maxVal = Math.max(...validVals);
 
                   const normalizedValues = originalValues.map((val) => {
                     if (val === null) return null;
-                    if (maxVal === 0) return 0; // avoid divide by zero
-                    return val / maxVal; // scale from 0 to 1, keeping zero at zero
+                    if (maxVal === minVal) return 0; // avoid divide by zero when all values are the same
+                    return (val - minVal) / (maxVal - minVal); // scale from 0 to 1, stretching the full range
                   });
 
                   return {
@@ -222,6 +279,9 @@ function App() {
 
             return updatedDatasets;
           });
+
+          // Clear any previous errors on successful upload
+          setErrorMessage("");
         }
       };
       reader.readAsText(file);
@@ -311,6 +371,17 @@ function App() {
             Clear All
           </button>
         </div>
+
+        {errorMessage && (
+          <div className="error-message">
+            <p>⚠️ {errorMessage}</p>
+            <p className="error-help">
+              Expected format: Date,Value
+              <br />
+              Example: 2024-01-01,85
+            </p>
+          </div>
+        )}
       </div>
 
       {datasets.length > 0 && (

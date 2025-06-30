@@ -103,6 +103,28 @@ body {
   background: var(--accent-light);
 }
 
+/* Error Message */
+.error-message {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius);
+  color: #dc2626;
+}
+
+.error-message p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.error-help {
+  margin-top: 8px !important;
+  font-size: 0.8rem !important;
+  color: #7f1d1d !important;
+  opacity: 0.8;
+}
+
 /* Files List */
 .files-list {
   background: var(--white);
