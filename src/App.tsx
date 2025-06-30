@@ -69,220 +69,257 @@ function App() {
 
   const parseCSV = (
     csvText: string
-  ): { data: DataPoint[]; valueColumnName: string; error?: string } => {
+  ): { data: DataPoint[]; valueColumnName: string; error?: string }[] => {
     const lines = csvText.trim().split("\n");
-    const data: DataPoint[] = [];
-    let valueColumnName = "Value"; // default fallback
+    const datasets: {
+      data: DataPoint[];
+      valueColumnName: string;
+      error?: string;
+    }[] = [];
 
     if (lines.length < 2) {
-      return {
-        data: [],
-        valueColumnName,
-        error: "CSV file must have at least 2 lines (header + data)",
-      };
+      return [
+        {
+          data: [],
+          valueColumnName: "",
+          error: "CSV file must have at least 2 lines (header + data)",
+        },
+      ];
     }
 
     if (lines.length > 0) {
       const headers = lines[0].split(",").map((h) => h.trim());
 
-      // Check if this looks like a simple Date,Value format
+      // Check if this looks like a Date,Value format
       if (headers.length < 2) {
-        return {
-          data: [],
-          valueColumnName,
-          error: "CSV must have at least 2 columns (Date and Value)",
-        };
+        return [
+          {
+            data: [],
+            valueColumnName: "",
+            error:
+              "CSV must have at least 2 columns (Date and at least one Value)",
+          },
+        ];
       }
 
       // Check if first column looks like a date column
       const firstCol = headers[0].toLowerCase();
       if (!firstCol.includes("date") && !firstCol.includes("time")) {
-        return {
-          data: [],
-          valueColumnName,
-          error: "First column should be a date column (e.g., 'Date', 'Time')",
+        return [
+          {
+            data: [],
+            valueColumnName: "",
+            error:
+              "First column should be a date column (e.g., 'Date', 'Time')",
+          },
+        ];
+      }
+
+      // Process each value column (skip the first column which is the date)
+      for (let colIndex = 1; colIndex < headers.length; colIndex++) {
+        const valueColumnName = headers[colIndex];
+        const data: DataPoint[] = [];
+
+        const parseDate = (dateString: string): Date | null => {
+          const trimmedDate = dateString.trim();
+
+          try {
+            // Let dayjs automatically parse the date
+            const parsed = dayjs(trimmedDate);
+
+            // Check if the parsed date is valid
+            if (parsed.isValid()) {
+              return parsed.toDate();
+            }
+          } catch (error) {
+            console.error(`Error parsing date "${trimmedDate}":`, error);
+          }
+
+          return null;
         };
-      }
 
-      if (headers.length >= 2) {
-        valueColumnName = headers[1];
-      }
-    }
+        let validRows = 0;
 
-    const parseDate = (dateString: string): Date | null => {
-      const trimmedDate = dateString.trim();
+        for (let i = 1; i < lines.length; i++) {
+          const columns = lines[i].split(",");
+          if (columns.length > colIndex) {
+            const dateString = columns[0].trim();
+            const valueString = columns[colIndex].trim().replace(/\r$/, ""); // Remove trailing carriage return
 
-      try {
-        // Let dayjs automatically parse the date
-        const parsed = dayjs(trimmedDate);
+            // Skip empty cells
+            if (
+              valueString === "" ||
+              valueString === null ||
+              valueString === undefined
+            ) {
+              continue;
+            }
 
-        // Check if the parsed date is valid
-        if (parsed.isValid()) {
-          return parsed.toDate();
-        }
-      } catch (error) {
-        console.error(`Error parsing date "${trimmedDate}":`, error);
-      }
+            const value = parseFloat(valueString);
 
-      return null;
-    };
-
-    let validRows = 0;
-    let totalRows = 0;
-
-    for (let i = 1; i < lines.length; i++) {
-      totalRows++;
-      const columns = lines[i].split(",");
-      if (columns.length >= 2) {
-        const dateString = columns[0].trim();
-        const valueString = columns[1].trim().replace(/\r$/, ""); // Remove trailing carriage return
-        const value = parseFloat(valueString);
-
-        if (!isNaN(value) && dateString) {
-          const parsedDate = parseDate(dateString);
-          if (parsedDate) {
-            // Normalize date to ISO format for consistency
-            const normalizedDate = dayjs(parsedDate).format("YYYY-MM-DD");
-            data.push({ date: normalizedDate, value });
-            validRows++;
+            if (!isNaN(value) && dateString) {
+              const parsedDate = parseDate(dateString);
+              if (parsedDate) {
+                // Normalize date to ISO format for consistency
+                const normalizedDate = dayjs(parsedDate).format("YYYY-MM-DD");
+                data.push({ date: normalizedDate, value });
+                validRows++;
+              }
+            }
           }
         }
+
+        // Only add dataset if we have valid data
+        if (validRows > 0) {
+          datasets.push({
+            data: data.sort(
+              (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+            ),
+            valueColumnName,
+          });
+        }
       }
     }
 
-    // Check if we got any valid data
-    if (validRows === 0) {
-      return {
-        data: [],
-        valueColumnName,
-        error: `No valid data found. Expected format: Date,Value. Found ${totalRows} rows but none could be parsed.`,
-      };
+    // Check if we got any valid datasets
+    if (datasets.length === 0) {
+      return [
+        {
+          data: [],
+          valueColumnName: "",
+          error: `No valid data found. Expected format: Date,Value1,Value2,... Found ${
+            lines.length - 1
+          } rows but none could be parsed.`,
+        },
+      ];
     }
 
-    if (validRows < totalRows * 0.5) {
-      return {
-        data: [],
-        valueColumnName,
-        error: `Only ${validRows} out of ${totalRows} rows could be parsed. Please check your CSV format.`,
-      };
-    }
-
-    return {
-      data: data.sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-      ),
-      valueColumnName,
-    };
+    return datasets;
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
+    // Track total datasets created across all files
+    let totalDatasetsCreated = 0;
+
     // Process all selected files
-    Array.from(files).forEach((file, fileIndex) => {
+    Array.from(files).forEach((file) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const csvText = e.target?.result as string;
-        const { data, valueColumnName, error } = parseCSV(csvText);
+        const parseResults = parseCSV(csvText);
 
-        if (error) {
-          setErrorMessage(`Error in ${file.name}: ${error}`);
+        // Check for errors
+        const errorResult = parseResults.find((result) => result.error);
+        if (errorResult) {
+          setErrorMessage(`Error in ${file.name}: ${errorResult.error}`);
           return;
         }
 
-        if (data.length > 0) {
-          const fileName = file.name.replace(".csv", "");
-          const colorIndex = (datasets.length + fileIndex) % colors.length;
+        // Process each dataset from the file
+        parseResults.forEach((result) => {
+          if (result.data.length > 0) {
+            const fileName = file.name.replace(".csv", "");
+            const datasetName =
+              parseResults.length > 1
+                ? `${fileName} - ${result.valueColumnName}`
+                : fileName;
+            const colorIndex =
+              (datasets.length + totalDatasetsCreated) % colors.length;
 
-          const newDataset: Dataset = {
-            label: fileName,
-            data,
-            borderColor: colors[colorIndex],
-            backgroundColor: colors[colorIndex] + "20",
-            valueColumnName,
-          };
+            const newDataset: Dataset = {
+              label: datasetName,
+              data: result.data,
+              borderColor: colors[colorIndex],
+              backgroundColor: colors[colorIndex] + "20",
+              valueColumnName: result.valueColumnName,
+            };
 
-          setDatasets((prevDatasets) => {
-            const updatedDatasets = [...prevDatasets, newDataset];
+            setDatasets((prevDatasets) => {
+              const updatedDatasets = [...prevDatasets, newDataset];
 
-            // Update chart data
-            const allDates = new Set<string>();
-            updatedDatasets.forEach((dataset) => {
-              dataset.data.forEach((point) => allDates.add(point.date));
-            });
+              // Update chart data
+              const allDates = new Set<string>();
+              updatedDatasets.forEach((dataset) => {
+                dataset.data.forEach((point) => allDates.add(point.date));
+              });
 
-            // Create continuous date range
-            const dateArray = Array.from(allDates);
-            const sortedDates = dateArray.sort(
-              (a, b) => new Date(a).getTime() - new Date(b).getTime()
-            );
+              // Create continuous date range
+              const dateArray = Array.from(allDates);
+              const sortedDates = dateArray.sort(
+                (a, b) => new Date(a).getTime() - new Date(b).getTime()
+              );
 
-            if (sortedDates.length > 0) {
-              const startDate = new Date(sortedDates[0]);
-              const endDate = new Date(sortedDates[sortedDates.length - 1]);
+              if (sortedDates.length > 0) {
+                const startDate = new Date(sortedDates[0]);
+                const endDate = new Date(sortedDates[sortedDates.length - 1]);
 
-              // Generate all dates in the range
-              const continuousDates: string[] = [];
-              const currentDate = new Date(startDate);
+                // Generate all dates in the range
+                const continuousDates: string[] = [];
+                const currentDate = new Date(startDate);
 
-              while (currentDate <= endDate) {
-                continuousDates.push(currentDate.toISOString().split("T")[0]);
-                currentDate.setDate(currentDate.getDate() + 1);
+                while (currentDate <= endDate) {
+                  continuousDates.push(currentDate.toISOString().split("T")[0]);
+                  currentDate.setDate(currentDate.getDate() + 1);
+                }
+
+                // Use continuous dates for the chart
+                const chartLabels = continuousDates.map((date) =>
+                  dayjs(date).format("MMM DD")
+                );
+
+                const chartDatasets: NormalizedDataset[] = updatedDatasets.map(
+                  (dataset) => {
+                    // Build arrays aligned with continuousDates (not chartLabels!)
+                    const originalValues = continuousDates.map((date) => {
+                      const point = dataset.data.find((p) => p.date === date);
+                      return point ? point.value : null;
+                    });
+
+                    // Compute min and max ignoring nulls
+                    const validVals = originalValues.filter(
+                      (v): v is number => v !== null
+                    );
+                    const minVal = Math.min(...validVals);
+                    const maxVal = Math.max(...validVals);
+
+                    const normalizedValues = originalValues.map((val) => {
+                      if (val === null) return null;
+                      if (maxVal === minVal) return 0; // avoid divide by zero when all values are the same
+                      return (val - minVal) / (maxVal - minVal); // scale from 0 to 1, stretching the full range
+                    });
+
+                    return {
+                      label: dataset.valueColumnName,
+                      data: normalizedValues,
+                      borderColor: dataset.borderColor,
+                      backgroundColor: dataset.backgroundColor,
+                      tension: 0.1,
+                      fill: false,
+                      pointRadius: 4,
+                      pointHoverRadius: 6,
+                      originalData: originalValues,
+                    };
+                  }
+                );
+
+                setChartData({
+                  labels: chartLabels,
+                  datasets: chartDatasets,
+                });
               }
 
-              // Use continuous dates for the chart
-              const chartLabels = continuousDates.map((date) =>
-                dayjs(date).format("MMM DD")
-              );
+              return updatedDatasets;
+            });
 
-              const chartDatasets: NormalizedDataset[] = updatedDatasets.map(
-                (dataset) => {
-                  // Build arrays aligned with continuousDates (not chartLabels!)
-                  const originalValues = continuousDates.map((date) => {
-                    const point = dataset.data.find((p) => p.date === date);
-                    return point ? point.value : null;
-                  });
+            totalDatasetsCreated++;
+          }
+        });
 
-                  // Compute min and max ignoring nulls
-                  const validVals = originalValues.filter(
-                    (v): v is number => v !== null
-                  );
-                  const minVal = Math.min(...validVals);
-                  const maxVal = Math.max(...validVals);
-
-                  const normalizedValues = originalValues.map((val) => {
-                    if (val === null) return null;
-                    if (maxVal === minVal) return 0; // avoid divide by zero when all values are the same
-                    return (val - minVal) / (maxVal - minVal); // scale from 0 to 1, stretching the full range
-                  });
-
-                  return {
-                    label: dataset.valueColumnName,
-                    data: normalizedValues,
-                    borderColor: dataset.borderColor,
-                    backgroundColor: dataset.backgroundColor,
-                    tension: 0.1,
-                    fill: false,
-                    pointRadius: 4,
-                    pointHoverRadius: 6,
-                    originalData: originalValues,
-                  };
-                }
-              );
-
-              setChartData({
-                labels: chartLabels,
-                datasets: chartDatasets,
-              });
-            }
-
-            return updatedDatasets;
-          });
-
-          // Clear any previous errors on successful upload
-          setErrorMessage("");
-        }
+        // Clear any previous errors on successful upload
+        setErrorMessage("");
       };
       reader.readAsText(file);
     });
@@ -376,9 +413,9 @@ function App() {
           <div className="error-message">
             <p>⚠️ {errorMessage}</p>
             <p className="error-help">
-              Expected format: Date,Value
+              Expected format: Date,Value1,Value2,Value3...
               <br />
-              Example: 2024-01-01,85
+              Example: 2024-01-01,85,120,45
             </p>
           </div>
         )}
